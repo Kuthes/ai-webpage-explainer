@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Webpage Explainer Settings</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #ffffff;
+      --text: #1f2937;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+    }
+
+    body {
+      width: 340px;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      margin: 0;
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.875rem;
+      box-sizing: border-box;
+      transition: all 0.2s;
+    }
+
+    select:focus, input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    .key-container {
+      display: none;
+    }
+
+    .key-container.active {
+      display: block;
+    }
+
+    .help-text {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 8px;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 0.875rem;
+      text-align: center;
+      height: 20px;
+    }
+
+    .status.success { color: #059669; }
+    .status.error { color: #dc2626; }
+
+    #custom-model-container {
+      display: none;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h2>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+    </svg>
+    AI Explainer
+  </h2>
+
+  <div class="form-group">
+    <label for="provider">AI Provider</label>
+    <select id="provider">
+      <option value="anthropic">Anthropic Claude</option>
+      <option value="openai">OpenAI</option>
+      <option value="gemini">Google Gemini</option>
+      <option value="openrouter">OpenRouter</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="model">Model</label>
+    <select id="model"></select>
+    <div id="custom-model-container">
+      <input type="text" id="custom-model" placeholder="Enter custom model ID...">
+    </div>
+  </div>
+
+  <div id="anthropic-key-container" class="form-group key-container">
+    <label for="anthropicKey">Anthropic API Key</label>
+    <input type="password" id="anthropicKey" placeholder="sk-ant-...">
+  </div>
+
+  <div id="openai-key-container" class="form-group key-container">
+    <label for="openaiKey">OpenAI API Key</label>
+    <input type="password" id="openaiKey" placeholder="sk-...">
+  </div>
+
+  <div id="gemini-key-container" class="form-group key-container">
+    <label for="geminiKey">Gemini API Key</label>
+    <input type="password" id="geminiKey" placeholder="Enter API Key...">
+  </div>
+
+  <div id="openrouter-key-container" class="form-group key-container">
+    <label for="openrouterKey">OpenRouter API Key</label>
+    <input type="password" id="openrouterKey" placeholder="sk-or-v1-...">
+  </div>
+
+  <button id="saveBtn">Save Settings</button>
+  
+  <div id="status" class="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
