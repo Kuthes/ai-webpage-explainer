@@ -28,10 +28,19 @@ async function handleRequest(type, payload, sendResponse) {
     ]);
 
     const provider = settings.provider || 'anthropic';
-    let model = settings.model || 'claude-sonnet-4-20250514';
+    let model = settings.model;
     
-    if (provider === 'openrouter' && model === 'custom') {
-      model = settings.customModel;
+    if (provider === 'openrouter') {
+      if (model === 'custom') {
+        if (!settings.customModel || !settings.customModel.trim()) {
+          throw new Error('Please enter a custom model ID in the extension settings.');
+        }
+        model = settings.customModel.trim();
+      } else if (!model || !model.includes('/')) {
+        model = 'openai/gpt-4.1';
+      }
+    } else if (!model) {
+      model = 'claude-sonnet-4-20250514';
     }
 
     const context = type === 'explain' ? payload : payload.context;
@@ -159,6 +168,7 @@ async function handleGemini(model, system, messages, apiKey) {
  */
 async function handleOpenRouter(model, system, messages, apiKey) {
   if (!apiKey) throw new Error('No OpenRouter API key set. Please configure it in extension settings.');
+  if (!model) throw new Error('No model selected for OpenRouter.');
 
   const formattedMessages = [{ role: 'system', content: system }, ...messages];
 
@@ -175,6 +185,12 @@ async function handleOpenRouter(model, system, messages, apiKey) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || 'OpenRouter API Error');
+  if (!response.ok || data.error) {
+    const errorMsg = typeof data.error === 'string' ? data.error : data.error?.message || 'OpenRouter API Error';
+    throw new Error(errorMsg);
+  }
+  if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+    throw new Error('Unexpected response format from OpenRouter API.');
+  }
   return data.choices[0].message.content;
 }

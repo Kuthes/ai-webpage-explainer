@@ -22,7 +22,7 @@ const PROVIDER_MODELS = {
   ],
   openrouter: [
     { id: 'openai/gpt-4.1', name: 'OpenAI GPT-4.1' },
-    { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+    { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
     { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
     { id: 'custom', name: 'Custom Model ID...' }
   ]
@@ -65,6 +65,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (result.model) {
       modelSelect.value = result.model;
     }
+    if (!modelSelect.value && modelSelect.options.length > 0) {
+      modelSelect.selectedIndex = 0;
+    }
     
     if (result.customModel) {
       customModelInput.value = result.customModel;
@@ -83,6 +86,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dynamic UI update on provider change
   providerSelect.addEventListener('change', () => {
     updateModelOptions(providerSelect.value);
+    if (modelSelect.options.length > 0) {
+      modelSelect.selectedIndex = 0;
+    }
     updateUI();
   });
 
