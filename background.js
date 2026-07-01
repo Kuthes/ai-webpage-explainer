@@ -31,6 +31,9 @@ async function handleRequest(type, payload, sendResponse) {
     let model = settings.model;
     
     if (provider === 'openrouter') {
+      if (model === 'anthropic/claude-sonnet-4-5') {
+        model = 'anthropic/claude-sonnet-4.5';
+      }
       if (model === 'custom') {
         if (!settings.customModel || !settings.customModel.trim()) {
           throw new Error('Please enter a custom model ID in the extension settings.');
