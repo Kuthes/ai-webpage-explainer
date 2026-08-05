@@ -5,22 +5,25 @@
 
 const PROVIDER_MODELS = {
   anthropic: [
-    { id: 'claude-sonnet-4-20250514', name: 'Claude 4 Sonnet' },
-    { id: 'claude-opus-4-20250514', name: 'Claude 4 Opus' },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude 4.5 Haiku' }
+    { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
+    { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+    { id: 'claude-sonnet-4-20250514', name: 'Claude 4 Sonnet' }
   ],
   openai: [
-    { id: 'gpt-4.1', name: 'GPT-4.1' },
-    { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini' },
     { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o-mini' }
+    { id: 'gpt-4o-mini', name: 'GPT-4o-mini' },
+    { id: 'gpt-4.1', name: 'GPT-4.1' },
+    { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini' }
   ],
   gemini: [
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
   ],
   openrouter: [
+    { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o' },
     { id: 'openai/gpt-4.1', name: 'OpenAI GPT-4.1' },
     { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
     { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
@@ -55,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'provider', 'model', 'customModel',
     'anthropicKey', 'openaiKey', 'geminiKey', 'openrouterKey'
   ], (result) => {
-    if (result.provider) {
+    if (result.provider && PROVIDER_MODELS[result.provider]) {
       providerSelect.value = result.provider;
     }
     
@@ -63,7 +66,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateModelOptions(providerSelect.value);
     
     if (result.model) {
-      modelSelect.value = result.model;
+      const exists = Array.from(modelSelect.options).some(opt => opt.value === result.model);
+      if (exists) {
+        modelSelect.value = result.model;
+      }
     }
     if (!modelSelect.value && modelSelect.options.length > 0) {
       modelSelect.selectedIndex = 0;
@@ -112,7 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function updateModelOptions(provider) {
-    modelSelect.innerHTML = '';
+    modelSelect.textContent = '';
     const models = PROVIDER_MODELS[provider] || [];
     models.forEach(m => {
       const opt = document.createElement('option');

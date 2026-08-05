@@ -22,70 +22,314 @@
   styleLink.href = chrome.runtime.getURL('styles.css');
   shadowRoot.appendChild(styleLink);
 
-  // HTML Structure
+  // HTML Structure using DOM APIs to avoid CSP issues with innerHTML
   const container = document.createElement('div');
   container.id = 'ai-explainer-root';
-  container.innerHTML = `
-    <div id="fab" class="fab" title="Explain this page">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-      </svg>
-    </div>
-    <div id="sidebar" class="sidebar">
-      <div class="sidebar-header">
-        <h3>AI Explainer</h3>
-        <button id="close-btn" class="close-btn">&times;</button>
-      </div>
-      <div id="chat-container" class="chat-container">
-        <div id="messages" class="messages">
-          <div class="message system">
-            Click the button below to get an explanation of this page.
-          </div>
-        </div>
-      </div>
-      <div class="sidebar-footer">
-        <div id="loading-indicator" class="loading-indicator hidden">
-          <div class="spinner"></div>
-          <span>Thinking...</span>
-        </div>
-        <div id="input-area" class="input-area hidden">
-          <textarea id="chat-input" placeholder="Ask a follow-up question..."></textarea>
-          <button id="send-btn" class="send-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
-        </div>
-        <button id="explain-btn" class="primary-btn">Explain Page</button>
-      </div>
-    </div>
-  `;
-  shadowRoot.appendChild(container);
 
-  // Element Selectors
-  const fab = shadowRoot.getElementById('fab');
-  const sidebar = shadowRoot.getElementById('sidebar');
-  const closeBtn = shadowRoot.getElementById('close-btn');
-  const explainBtn = shadowRoot.getElementById('explain-btn');
-  const messagesDiv = shadowRoot.getElementById('messages');
-  const chatInput = shadowRoot.getElementById('chat-input');
-  const sendBtn = shadowRoot.getElementById('send-btn');
-  const loadingIndicator = shadowRoot.getElementById('loading-indicator');
-  const inputArea = shadowRoot.getElementById('input-area');
+  // FAB
+  const fab = document.createElement('div');
+  fab.id = 'fab';
+  fab.className = 'fab';
+  fab.title = 'Explain this page';
+  const svgNS = "http://www.w3.org/2000/svg";
+  const fabSvg = document.createElementNS(svgNS, 'svg');
+  fabSvg.setAttribute('width', '24');
+  fabSvg.setAttribute('height', '24');
+  fabSvg.setAttribute('viewBox', '0 0 24 24');
+  fabSvg.setAttribute('fill', 'none');
+  fabSvg.setAttribute('stroke', 'currentColor');
+  fabSvg.setAttribute('stroke-width', '2');
+  fabSvg.setAttribute('stroke-linecap', 'round');
+  fabSvg.setAttribute('stroke-linejoin', 'round');
+  const fabPath = document.createElementNS(svgNS, 'path');
+  fabPath.setAttribute('d', 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z');
+  fabSvg.appendChild(fabPath);
+  fab.appendChild(fabSvg);
+  container.appendChild(fab);
+
+  // Sidebar
+  const sidebar = document.createElement('div');
+  sidebar.id = 'sidebar';
+  sidebar.className = 'sidebar';
+
+  // Sidebar Header
+  const sidebarHeader = document.createElement('div');
+  sidebarHeader.className = 'sidebar-header';
+  const headerTitle = document.createElement('div');
+  headerTitle.className = 'header-title-container';
+  const h3 = document.createElement('h3');
+  h3.textContent = 'AI Explainer';
+  const historyBtn = document.createElement('button');
+  historyBtn.id = 'history-btn';
+  historyBtn.className = 'icon-btn';
+  historyBtn.title = 'View Summary History';
+  historyBtn.textContent = '📜';
+  headerTitle.appendChild(h3);
+  headerTitle.appendChild(historyBtn);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.id = 'close-btn';
+  closeBtn.className = 'close-btn';
+  closeBtn.textContent = '×';
+  sidebarHeader.appendChild(headerTitle);
+  sidebarHeader.appendChild(closeBtn);
+  sidebar.appendChild(sidebarHeader);
+
+  // History Drawer Overlay
+  const historyDrawer = document.createElement('div');
+  historyDrawer.id = 'history-drawer';
+  historyDrawer.className = 'history-drawer hidden';
+  sidebar.appendChild(historyDrawer);
+
+  // Preset Actions Bar
+  const presetBar = document.createElement('div');
+  presetBar.className = 'preset-bar';
+
+  const presets = [
+    { id: 'summary', label: '📌 Summary' },
+    { id: 'takeaways', label: '💡 Takeaways' },
+    { id: 'eli5', label: '👶 ELI5' },
+    { id: 'faqs', label: '❓ FAQs' }
+  ];
+
+  presets.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'preset-pill';
+    btn.textContent = p.label;
+    btn.addEventListener('click', () => startPresetExplanation(p.id));
+    presetBar.appendChild(btn);
+  });
+
+  sidebar.appendChild(presetBar);
+
+  // Chat Container
+  const chatContainer = document.createElement('div');
+  chatContainer.id = 'chat-container';
+  chatContainer.className = 'chat-container';
+  const messagesDiv = document.createElement('div');
+  messagesDiv.id = 'messages';
+  messagesDiv.className = 'messages';
+  const systemMsg = document.createElement('div');
+  systemMsg.className = 'message system';
+  systemMsg.textContent = 'Click the button below to get an explanation of this page.';
+  messagesDiv.appendChild(systemMsg);
+  chatContainer.appendChild(messagesDiv);
+  sidebar.appendChild(chatContainer);
+
+  // Sidebar Footer
+  const sidebarFooter = document.createElement('div');
+  sidebarFooter.className = 'sidebar-footer';
+  
+  const loadingIndicator = document.createElement('div');
+  loadingIndicator.id = 'loading-indicator';
+  loadingIndicator.className = 'loading-indicator hidden';
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner';
+  const spinnerText = document.createElement('span');
+  spinnerText.textContent = 'Thinking...';
+  loadingIndicator.appendChild(spinner);
+  loadingIndicator.appendChild(spinnerText);
+  sidebarFooter.appendChild(loadingIndicator);
+
+  const inputArea = document.createElement('div');
+  inputArea.id = 'input-area';
+  inputArea.className = 'input-area hidden';
+  const chatInput = document.createElement('textarea');
+  chatInput.id = 'chat-input';
+  chatInput.placeholder = 'Ask a follow-up question...';
+  const sendBtn = document.createElement('button');
+  sendBtn.id = 'send-btn';
+  sendBtn.className = 'send-btn';
+  const sendSvg = document.createElementNS(svgNS, 'svg');
+  sendSvg.setAttribute('width', '18');
+  sendSvg.setAttribute('height', '18');
+  sendSvg.setAttribute('viewBox', '0 0 24 24');
+  sendSvg.setAttribute('fill', 'none');
+  sendSvg.setAttribute('stroke', 'currentColor');
+  sendSvg.setAttribute('stroke-width', '2');
+  sendSvg.setAttribute('stroke-linecap', 'round');
+  sendSvg.setAttribute('stroke-linejoin', 'round');
+  const sendLine = document.createElementNS(svgNS, 'line');
+  sendLine.setAttribute('x1', '22');
+  sendLine.setAttribute('y1', '2');
+  sendLine.setAttribute('x2', '11');
+  sendLine.setAttribute('y2', '13');
+  const sendPoly = document.createElementNS(svgNS, 'polygon');
+  sendPoly.setAttribute('points', '22 2 15 22 11 13 2 9 22 2');
+  sendSvg.appendChild(sendLine);
+  sendSvg.appendChild(sendPoly);
+  sendBtn.appendChild(sendSvg);
+  inputArea.appendChild(chatInput);
+  inputArea.appendChild(sendBtn);
+  sidebarFooter.appendChild(inputArea);
+
+  const explainBtn = document.createElement('button');
+  explainBtn.id = 'explain-btn';
+  explainBtn.className = 'primary-btn';
+  explainBtn.textContent = 'Explain Page';
+  sidebarFooter.appendChild(explainBtn);
+  
+  // Floating Selection Tooltip
+  const tooltip = document.createElement('button');
+  tooltip.id = 'selection-tooltip';
+  tooltip.className = 'selection-tooltip hidden';
+  tooltip.textContent = '✨ Explain Selection';
+  container.appendChild(tooltip);
+
+  sidebar.appendChild(sidebarFooter);
+  container.appendChild(sidebar);
+
+  shadowRoot.appendChild(container);
 
   // 2. Event Listeners
   fab.addEventListener('click', toggleSidebar);
   closeBtn.addEventListener('click', toggleSidebar);
+  historyBtn.addEventListener('click', toggleHistoryDrawer);
   explainBtn.addEventListener('click', startExplanation);
   
   sendBtn.addEventListener('click', handleChat);
-  chatInput.addEventListener('keypress', (e) => {
+  chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleChat();
     }
   });
+
+  let activeSelectionText = '';
+
+  document.addEventListener('mouseup', handleTextSelection);
+  document.addEventListener('keyup', handleTextSelection);
+
+  tooltip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (activeSelectionText) {
+      const textToExplain = activeSelectionText;
+      hideTooltip();
+      startSelectionExplanation(textToExplain);
+    }
+  });
+
+  chrome.runtime.onMessage.addListener((request) => {
+    if (request.action === 'triggerSelectionExplanation' && request.selectionText) {
+      startSelectionExplanation(request.selectionText);
+    }
+  });
+
+  function handleTextSelection(e) {
+    if (host.contains(e.target)) return;
+
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const text = sel ? sel.toString().trim() : '';
+
+      if (text.length >= 3 && sel.rangeCount > 0) {
+        activeSelectionText = text;
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+
+        if (rect.width > 0 && rect.height > 0) {
+          tooltip.style.top = `${window.scrollY + rect.top - 44}px`;
+          tooltip.style.left = `${window.scrollX + rect.left + (rect.width / 2) - 65}px`;
+          tooltip.classList.remove('hidden');
+          return;
+        }
+      }
+      hideTooltip();
+    }, 10);
+  }
+
+  function hideTooltip() {
+    activeSelectionText = '';
+    tooltip.classList.add('hidden');
+  }
+
+  function toggleHistoryDrawer() {
+    const isHidden = historyDrawer.classList.contains('hidden');
+    if (isHidden) {
+      renderHistoryList();
+      historyDrawer.classList.remove('hidden');
+    } else {
+      historyDrawer.classList.add('hidden');
+    }
+  }
+
+  function renderHistoryList() {
+    historyDrawer.textContent = '';
+    
+    const drawerHeader = document.createElement('div');
+    drawerHeader.className = 'drawer-header';
+    const drawerTitle = document.createElement('h4');
+    drawerTitle.textContent = '📜 Saved Explanations';
+    const drawerClose = document.createElement('button');
+    drawerClose.className = 'close-btn';
+    drawerClose.textContent = '×';
+    drawerClose.addEventListener('click', toggleHistoryDrawer);
+    drawerHeader.appendChild(drawerTitle);
+    drawerHeader.appendChild(drawerClose);
+    historyDrawer.appendChild(drawerHeader);
+
+    const historyList = document.createElement('div');
+    historyList.className = 'history-list';
+
+    chrome.storage.local.get(['explanationHistory'], (result) => {
+      const items = Array.isArray(result.explanationHistory) ? result.explanationHistory : [];
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'history-empty';
+        empty.textContent = 'No saved explanations yet.';
+        historyList.appendChild(empty);
+      } else {
+        items.forEach((item) => {
+          const card = document.createElement('div');
+          card.className = 'history-card';
+
+          const cardTitle = document.createElement('div');
+          cardTitle.className = 'history-card-title';
+          cardTitle.textContent = item.title || 'Untitled Webpage';
+
+          const cardMeta = document.createElement('div');
+          cardMeta.className = 'history-card-meta';
+          cardMeta.textContent = item.timestamp || '';
+
+          const cardPreview = document.createElement('div');
+          cardPreview.className = 'history-card-preview';
+          cardPreview.textContent = item.explanation ? (item.explanation.substring(0, 110) + '...') : '';
+
+          card.appendChild(cardTitle);
+          card.appendChild(cardMeta);
+          card.appendChild(cardPreview);
+
+          card.addEventListener('click', () => {
+            toggleHistoryDrawer();
+            messagesDiv.textContent = '';
+            addMessage('assistant', item.explanation);
+            inputArea.classList.remove('hidden');
+            chatHistory = [
+              { role: 'user', content: `Loaded explanation for: ${item.title}` },
+              { role: 'assistant', content: item.explanation }
+            ];
+          });
+
+          historyList.appendChild(card);
+        });
+      }
+    });
+
+    historyDrawer.appendChild(historyList);
+  }
+
+  function saveToHistory(title, url, explanation) {
+    chrome.storage.local.get(['explanationHistory'], (result) => {
+      const history = Array.isArray(result.explanationHistory) ? result.explanationHistory : [];
+      history.unshift({
+        title: title || document.title || 'Untitled Page',
+        url: url || window.location.href,
+        explanation,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+      chrome.storage.local.set({ explanationHistory: history.slice(0, 20) });
+    });
+  }
 
   // 3. Logic Functions
   function toggleSidebar() {
@@ -95,11 +339,9 @@
   }
 
   function extractContent() {
-    // Basic extraction logic
     const title = document.title;
     const url = window.location.href;
     
-    // Select main content
     const selectors = ['article', 'main', '.content', '#content', '.post', '.article'];
     let mainElement = null;
     for (const selector of selectors) {
@@ -111,18 +353,24 @@
     }
     
     if (!mainElement) {
-      mainElement = document.body;
+      mainElement = document.body || document.documentElement;
     }
 
-    // Clean content
     const clone = mainElement.cloneNode(true);
     const toRemove = clone.querySelectorAll('script, style, nav, footer, iframe, noscript, .ads, .sidebar');
     toRemove.forEach(el => el.remove());
 
+    // Insert spaces around block elements so adjacent headers/paragraphs do not smash together
+    const blockElements = clone.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, div, tr, br');
+    blockElements.forEach(el => {
+      el.prepend(document.createTextNode('\n'));
+      el.append(document.createTextNode('\n'));
+    });
+
     return {
       title,
       url,
-      content: clone.innerText.replace(/\s+/g, ' ').trim().substring(0, 15000) // Limit content size
+      content: clone.textContent.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim().substring(0, 15000)
     };
   }
 
@@ -136,10 +384,115 @@
       payload: pageContext
     }, (response) => {
       setLoading(false);
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError.message);
+        addMessage('system error', 'Extension context error. Please refresh the page.');
+        explainBtn.classList.remove('hidden');
+        return;
+      }
       if (response && response.success) {
         addMessage('assistant', response.explanation);
         inputArea.classList.remove('hidden');
-        chatHistory.push({ role: 'assistant', content: response.explanation });
+        saveToHistory(pageContext.title, pageContext.url, response.explanation);
+        chatHistory = [
+          { role: 'user', content: `Please explain this page: ${pageContext.title}` },
+          { role: 'assistant', content: response.explanation }
+        ];
+      } else {
+        addMessage('system error', `Error: ${response?.error || 'Unknown error occurred'}`);
+        explainBtn.classList.remove('hidden');
+      }
+    });
+  }
+
+  async function startSelectionExplanation(selectionText) {
+    pageContext = { title: document.title, url: window.location.href };
+    sidebarOpen = true;
+    sidebar.classList.add('open');
+    fab.classList.add('hidden');
+
+    messagesDiv.textContent = '';
+    const sysMsg = document.createElement('div');
+    sysMsg.className = 'message system';
+    sysMsg.textContent = `Explaining selected text: "${selectionText.length > 80 ? selectionText.substring(0, 80) + '...' : selectionText}"`;
+    messagesDiv.appendChild(sysMsg);
+
+    explainBtn.classList.add('hidden');
+    setLoading(true);
+
+    chrome.runtime.sendMessage({
+      action: 'explainSelection',
+      payload: {
+        title: document.title,
+        url: window.location.href,
+        selectedText: selectionText
+      }
+    }, (response) => {
+      setLoading(false);
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError.message);
+        addMessage('system error', 'Extension context error. Please refresh the page.');
+        explainBtn.classList.remove('hidden');
+        return;
+      }
+      if (response && response.success) {
+        addMessage('assistant', response.explanation);
+        inputArea.classList.remove('hidden');
+        saveToHistory(pageContext.title, pageContext.url, response.explanation);
+        chatHistory = [
+          { role: 'user', content: `Please explain this selected text:\n\n"${selectionText}"` },
+          { role: 'assistant', content: response.explanation }
+        ];
+      } else {
+        addMessage('system error', `Error: ${response?.error || 'Unknown error occurred'}`);
+        explainBtn.classList.remove('hidden');
+      }
+    });
+  }
+
+  async function startPresetExplanation(mode) {
+    pageContext = extractContent();
+    sidebarOpen = true;
+    sidebar.classList.add('open');
+    fab.classList.add('hidden');
+
+    messagesDiv.textContent = '';
+    const sysMsg = document.createElement('div');
+    sysMsg.className = 'message system';
+    const modeTitles = {
+      summary: 'Generating Executive Summary...',
+      takeaways: 'Extracting Key Takeaways...',
+      eli5: 'Generating ELI5 Explanation...',
+      faqs: 'Extracting FAQs...'
+    };
+    sysMsg.textContent = modeTitles[mode] || 'Processing page with AI...';
+    messagesDiv.appendChild(sysMsg);
+
+    explainBtn.classList.add('hidden');
+    setLoading(true);
+
+    chrome.runtime.sendMessage({
+      action: 'explainPreset',
+      payload: {
+        ...pageContext,
+        mode
+      }
+    }, (response) => {
+      setLoading(false);
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError.message);
+        addMessage('system error', 'Extension context error. Please refresh the page.');
+        explainBtn.classList.remove('hidden');
+        return;
+      }
+      if (response && response.success) {
+        addMessage('assistant', response.explanation);
+        inputArea.classList.remove('hidden');
+        saveToHistory(pageContext.title, pageContext.url, response.explanation);
+        chatHistory = [
+          { role: 'user', content: `Generate ${modeTitles[mode] || mode} for this page` },
+          { role: 'assistant', content: response.explanation }
+        ];
       } else {
         addMessage('system error', `Error: ${response?.error || 'Unknown error occurred'}`);
         explainBtn.classList.remove('hidden');
@@ -164,6 +517,11 @@
       }
     }, (response) => {
       setLoading(false);
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError.message);
+        addMessage('system error', 'Extension context error. Please refresh the page.');
+        return;
+      }
       if (response && response.success) {
         addMessage('assistant', response.reply);
         chatHistory.push({ role: 'user', content: text });
@@ -178,15 +536,79 @@
     const msgEl = document.createElement('div');
     msgEl.className = `message ${role}`;
     
-    // Simple markdown-ish rendering for assistant
     if (role === 'assistant') {
-      msgEl.innerHTML = renderMarkdown(text);
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'message-body';
+      buildSafeMarkdown(text, bodyEl);
+      msgEl.appendChild(bodyEl);
+
+      const actionsBar = document.createElement('div');
+      actionsBar.className = 'msg-actions';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'action-btn';
+      copyBtn.textContent = '📋 Copy';
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = '✅ Copied!';
+          setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+        } catch (err) {
+          console.error('Clipboard copy failed:', err);
+        }
+      });
+
+      const downloadBtn = document.createElement('button');
+      downloadBtn.className = 'action-btn';
+      downloadBtn.textContent = '📥 Download';
+      downloadBtn.addEventListener('click', () => {
+        downloadTextAsFile(text, pageContext?.title || document.title);
+      });
+
+      const speakBtn = document.createElement('button');
+      speakBtn.className = 'action-btn';
+      speakBtn.textContent = '🔊 Listen';
+      speakBtn.addEventListener('click', () => {
+        toggleSpeech(text, speakBtn);
+      });
+
+      actionsBar.appendChild(copyBtn);
+      actionsBar.appendChild(downloadBtn);
+      actionsBar.appendChild(speakBtn);
+      msgEl.appendChild(actionsBar);
     } else {
       msgEl.textContent = text;
     }
     
     messagesDiv.appendChild(msgEl);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  function downloadTextAsFile(text, title) {
+    const safeTitle = (title || 'summary').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const filename = `${safeTitle}_summary.md`;
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  let activeUtterance = null;
+  function toggleSpeech(text, btn) {
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      btn.textContent = '🔊 Listen';
+      return;
+    }
+    const cleanText = text.replace(/[#*`_\[\]]/g, '');
+    activeUtterance = new SpeechSynthesisUtterance(cleanText);
+    activeUtterance.onend = () => { btn.textContent = '🔊 Listen'; };
+    activeUtterance.onerror = () => { btn.textContent = '🔊 Listen'; };
+    btn.textContent = '⏹️ Stop';
+    window.speechSynthesis.speak(activeUtterance);
   }
 
   function setLoading(loading) {
@@ -198,24 +620,83 @@
     }
   }
 
-  function renderMarkdown(text) {
-    // Basic markdown renderer with support for common patterns
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-      .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-      .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`(.*?)`/g, '<code>$1</code>')
-      .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>')
-      .replace(/\n\n/g, '</p><p>')
-      .replace(/\n/g, '<br>')
-      .replace(/^- (.*)/gm, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-      .trim();
+  function buildSafeMarkdown(text, container) {
+    container.textContent = '';
+    const blocks = text.split('\n\n');
+    blocks.forEach(block => {
+      block = block.trim();
+      if (!block) return;
+      
+      if (block.startsWith('#')) {
+        const match = block.match(/^(#{1,3})\s+(.*)/);
+        if (match) {
+          const level = match[1].length;
+          const h = document.createElement(`h${level}`);
+          buildInline(match[2], h);
+          container.appendChild(h);
+          return;
+        }
+      }
+      
+      if (block.startsWith('- ') || block.startsWith('* ')) {
+        const ul = document.createElement('ul');
+        const items = block.split('\n');
+        items.forEach(item => {
+          const li = document.createElement('li');
+          buildInline(item.replace(/^[-*]\s+/, ''), li);
+          ul.appendChild(li);
+        });
+        container.appendChild(ul);
+        return;
+      }
+      
+      const p = document.createElement('p');
+      const lines = block.split('\n');
+      lines.forEach((line, idx) => {
+        if (idx > 0) p.appendChild(document.createElement('br'));
+        buildInline(line, p);
+      });
+      container.appendChild(p);
+    });
+  }
+
+  function buildInline(text, parent) {
+    let current = 0;
+    const regex = /(\*\*(.*?)\*\*|\*(.*?)\*|`(.*?)`|\[(.*?)\]\((.*?)\))/g;
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > current) {
+        parent.appendChild(document.createTextNode(text.substring(current, match.index)));
+      }
+      if (match[1].startsWith('**')) {
+        const strong = document.createElement('strong');
+        strong.textContent = match[2];
+        parent.appendChild(strong);
+      } else if (match[1].startsWith('*')) {
+        const em = document.createElement('em');
+        em.textContent = match[3];
+        parent.appendChild(em);
+      } else if (match[1].startsWith('`')) {
+        const code = document.createElement('code');
+        code.textContent = match[4];
+        parent.appendChild(code);
+      } else if (match[1].startsWith('[')) {
+        const a = document.createElement('a');
+        a.textContent = match[5];
+        if (match[6].startsWith('http://') || match[6].startsWith('https://')) {
+          a.href = match[6];
+        } else {
+          a.href = '#';
+        }
+        a.target = '_blank';
+        parent.appendChild(a);
+      }
+      current = regex.lastIndex;
+    }
+    if (current < text.length) {
+      parent.appendChild(document.createTextNode(text.substring(current)));
+    }
   }
 
 })();

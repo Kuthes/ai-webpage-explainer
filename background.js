@@ -3,9 +3,49 @@
  * Handles multi-provider API communication with normalized responses.
  */
 
+const DEFAULT_MODELS = {
+  anthropic: 'claude-3-7-sonnet-20250219',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.0-flash',
+  openrouter: 'openai/gpt-4o'
+};
+
+const VALID_MODELS = {
+  anthropic: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-sonnet-4-20250514'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'],
+  gemini: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro'],
+  openrouter: ['openai/gpt-4o', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4.5', 'google/gemini-2.5-pro', 'custom']
+};
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(['provider'], (result) => {
+    if (!result.provider) {
+      chrome.storage.local.set({
+        provider: 'anthropic',
+        model: DEFAULT_MODELS.anthropic
+      });
+    }
+  });
+
+  chrome.contextMenus.create({
+    id: 'explainSelection',
+    title: 'Explain selection with AI',
+    contexts: ['selection']
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'explainSelection' && tab?.id) {
+    chrome.tabs.sendMessage(tab.id, {
+      action: 'triggerSelectionExplanation',
+      selectionText: info.selectionText
+    });
+  }
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'explainContent') {
-    handleRequest('explain', request.payload, sendResponse);
+  if (request.action === 'explainContent' || request.action === 'explainSelection' || request.action === 'explainPreset') {
+    handleRequest(request.action, request.payload, sendResponse);
     return true; // Mandatory for async sendResponse
   }
   if (request.action === 'chat') {
@@ -15,8 +55,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
+ * Normalizes message list to guarantee it begins with 'user' role and alternates roles.
+ * Prevents 400 Bad Request errors from Anthropic and Gemini APIs.
+ */
+function normalizeMessages(rawMessages) {
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    return [{ role: 'user', content: 'Hello' }];
+  }
+
+  const cleaned = rawMessages.filter(m => m && typeof m.content === 'string' && m.content.trim() !== '');
+  if (cleaned.length === 0) {
+    return [{ role: 'user', content: 'Hello' }];
+  }
+
+  // Ensure first message is user role
+  if (cleaned[0].role !== 'user') {
+    cleaned.unshift({ role: 'user', content: 'Please summarize or answer based on the webpage context.' });
+  }
+
+  // Ensure strict alternation of user and assistant roles
+  const result = [];
+  cleaned.forEach((msg) => {
+    const role = msg.role === 'user' ? 'user' : 'assistant';
+    if (result.length > 0 && result[result.length - 1].role === role) {
+      result[result.length - 1].content += `\n\n${msg.content}`;
+    } else {
+      result.push({ role, content: msg.content });
+    }
+  });
+
+  return result;
+}
+
+/**
  * Routes requests to the appropriate AI provider handler.
- * @param {string} type - 'explain' or 'chat'
+ * @param {string} type - 'explain', 'explainSelection', 'explainPreset', or 'chat'
  * @param {object} payload - The content or message to process
  * @param {function} sendResponse - Chrome message response callback
  */
@@ -27,42 +100,62 @@ async function handleRequest(type, payload, sendResponse) {
       'anthropicKey', 'openaiKey', 'geminiKey', 'openrouterKey'
     ]);
 
-    const provider = settings.provider || 'anthropic';
+    const provider = settings.provider && DEFAULT_MODELS[settings.provider] ? settings.provider : 'anthropic';
     let model = settings.model;
     
+    // Validate model for current provider to prevent cross-provider model mismatch errors
     if (provider === 'openrouter') {
-      if (model === 'anthropic/claude-sonnet-4-5') {
-        model = 'anthropic/claude-sonnet-4.5';
-      }
       if (model === 'custom') {
         if (!settings.customModel || !settings.customModel.trim()) {
           throw new Error('Please enter a custom model ID in the extension settings.');
         }
         model = settings.customModel.trim();
       } else if (!model || !model.includes('/')) {
-        model = 'openai/gpt-4.1';
+        model = DEFAULT_MODELS.openrouter;
       }
-    } else if (!model) {
-      model = 'claude-sonnet-4-20250514';
+    } else {
+      const allowed = VALID_MODELS[provider] || [];
+      if (!model || !allowed.includes(model)) {
+        model = DEFAULT_MODELS[provider];
+      }
     }
 
-    const context = type === 'explain' ? payload : payload.context;
-    const systemPrompt = `You are a helpful AI assistant that explains webpage content. 
+    const context = type === 'chat' ? payload.context : payload;
+    const isSelection = type === 'explainSelection';
+    const isPreset = type === 'explainPreset';
+
+    let systemPrompt = `You are a helpful AI assistant that explains webpage content. 
 Summarize the main points of the page provided. Be concise but thorough. 
 Use markdown for formatting. 
-Page Title: ${context.title}
-URL: ${context.url}`;
+Page Title: ${context?.title || 'Unknown Title'}
+URL: ${context?.url || 'Unknown URL'}`;
 
-    let messages = [];
-    if (type === 'explain') {
-      messages = [{ role: 'user', content: `Please explain the following content:\n\n${payload.content}` }];
-    } else {
-      messages = payload.history.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }));
-      messages.push({ role: 'user', content: payload.message });
+    if (isSelection) {
+      systemPrompt = `You are a helpful AI assistant. Explain the following text selection clearly and concisely in plain English. Use markdown formatting. Page Title: ${context?.title || 'Unknown Title'} (URL: ${context?.url || 'Unknown URL'})`;
+    } else if (isPreset) {
+      const mode = payload.mode;
+      if (mode === 'summary') {
+        systemPrompt = `You are an executive assistant. Provide a concise 3-sentence executive summary highlighting key facts and core impacts. Use markdown formatting. Page Title: ${context?.title || 'Unknown Title'}`;
+      } else if (mode === 'takeaways') {
+        systemPrompt = `You are an analyst. Extract the top key takeaways and actionable bullet points from the page. Use clear bullet points and bold key terms. Page Title: ${context?.title || 'Unknown Title'}`;
+      } else if (mode === 'eli5') {
+        systemPrompt = `You are an educator. Explain the content of this webpage in extremely simple, non-technical plain English as if explaining to a 5-year-old. Use relatable analogies. Page Title: ${context?.title || 'Unknown Title'}`;
+      } else if (mode === 'faqs') {
+        systemPrompt = `You are a helpful assistant. Extract 3 to 5 key frequently asked questions (FAQs) and concise answers based on the page content. Format with bold Q: and A:. Page Title: ${context?.title || 'Unknown Title'}`;
+      }
     }
+
+    let rawMessages = [];
+    if (type === 'explain' || type === 'explainPreset') {
+      rawMessages = [{ role: 'user', content: `Please process the following content according to your instructions:\n\n${payload.content}` }];
+    } else if (type === 'explainSelection') {
+      rawMessages = [{ role: 'user', content: `Please explain this selected text:\n\n"${payload.selectedText}"` }];
+    } else {
+      rawMessages = Array.isArray(payload.history) ? [...payload.history] : [];
+      rawMessages.push({ role: 'user', content: payload.message });
+    }
+
+    const messages = normalizeMessages(rawMessages);
 
     let textResult;
     switch (provider) {
@@ -100,7 +193,8 @@ async function handleAnthropic(model, system, messages, apiKey) {
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
       model,
@@ -111,7 +205,7 @@ async function handleAnthropic(model, system, messages, apiKey) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || 'Anthropic API Error');
+  if (!response.ok) throw new Error(data.error?.message || `Anthropic API Error (HTTP ${response.status})`);
   return data.content[0].text;
 }
 
@@ -133,7 +227,7 @@ async function handleOpenAI(model, system, messages, apiKey) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || 'OpenAI API Error');
+  if (!response.ok) throw new Error(data.error?.message || `OpenAI API Error (HTTP ${response.status})`);
   return data.choices[0].message.content;
 }
 
@@ -148,7 +242,6 @@ async function handleGemini(model, system, messages, apiKey) {
     parts: [{ text: m.content }]
   }));
 
-  // Gemini URL uses encodeURIComponent(model)
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
   
   const response = await fetch(url, {
@@ -162,7 +255,13 @@ async function handleGemini(model, system, messages, apiKey) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || 'Gemini API Error');
+  if (!response.ok) throw new Error(data.error?.message || `Gemini API Error (HTTP ${response.status})`);
+  
+  if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+    const blockReason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
+    throw new Error(blockReason ? `Gemini request stopped: ${blockReason}` : (data.error?.message || 'Unexpected response format from Gemini API.'));
+  }
+
   return data.candidates[0].content.parts[0].text;
 }
 
@@ -180,7 +279,6 @@ async function handleOpenRouter(model, system, messages, apiKey) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
-      // OpenRouter HTTP-Referer set to chrome.runtime.getURL('')
       'HTTP-Referer': chrome.runtime.getURL(''),
       'X-Title': 'AI Webpage Explainer'
     },
@@ -189,7 +287,7 @@ async function handleOpenRouter(model, system, messages, apiKey) {
 
   const data = await response.json();
   if (!response.ok || data.error) {
-    const errorMsg = typeof data.error === 'string' ? data.error : data.error?.message || 'OpenRouter API Error';
+    const errorMsg = typeof data.error === 'string' ? data.error : data.error?.message || `OpenRouter API Error (HTTP ${response.status})`;
     throw new Error(errorMsg);
   }
   if (!data.choices || !data.choices[0] || !data.choices[0].message) {
