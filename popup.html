@@ -121,6 +121,7 @@
       <option value="openai">OpenAI</option>
       <option value="gemini">Google Gemini</option>
       <option value="openrouter">OpenRouter</option>
+      <option value="chrome-ai">Built-in Chrome AI (Gemini Nano - Offline)</option>
     </select>
   </div>
 
@@ -150,6 +151,32 @@
   <div id="openrouter-key-container" class="form-group key-container">
     <label for="openrouterKey">OpenRouter API Key</label>
     <input type="password" id="openrouterKey" placeholder="sk-or-v1-...">
+  </div>
+
+  <div id="chrome-ai-key-container" class="form-group key-container">
+    <div class="help-text" style="color:#059669; font-weight:500;">
+      ⚡ Built-in Chrome AI runs locally on your device with zero API keys or costs.
+    </div>
+  </div>
+
+  <div class="form-group" style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
+    <label for="customPresetTitle">Custom Prompt Persona</label>
+    <input type="text" id="customPresetTitle" placeholder="Preset Label (e.g., Code Auditor)" style="margin-bottom: 6px;">
+    <input type="text" id="customPresetPrompt" placeholder="Custom System Instruction...">
+    <div class="help-text">Appears as a custom pill in your sidebar preset bar.</div>
+  </div>
+
+  <div class="form-group" style="margin-top: 12px;">
+    <label for="webhookUrl">Workspace Export Webhook URL</label>
+    <input type="text" id="webhookUrl" placeholder="https://api.notion.com / Zapier / Obsidian Webhook">
+    <div class="help-text">One-click export summaries to Notion, Obsidian, or Trello.</div>
+  </div>
+
+  <div class="form-group" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+    <input type="checkbox" id="maskPII" style="width: auto;">
+    <label for="maskPII" style="margin-bottom: 0; font-weight: normal; cursor: pointer;">
+      🛡️ Enable PII Masking (Redact Emails & Phone Numbers)
+    </label>
   </div>
 
   <button id="saveBtn">Save Settings</button>

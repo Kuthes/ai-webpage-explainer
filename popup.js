@@ -28,6 +28,9 @@ const PROVIDER_MODELS = {
     { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
     { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
     { id: 'custom', name: 'Custom Model ID...' }
+  ],
+  'chrome-ai': [
+    { id: 'gemini-nano', name: 'Gemini Nano (On-Device Local AI)' }
   ]
 };
 
@@ -36,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const modelSelect = document.getElementById('model');
   const customModelContainer = document.getElementById('custom-model-container');
   const customModelInput = document.getElementById('custom-model');
+  const customPresetTitleInput = document.getElementById('customPresetTitle');
+  const customPresetPromptInput = document.getElementById('customPresetPrompt');
   const saveBtn = document.getElementById('saveBtn');
   const status = document.getElementById('status');
 
@@ -50,13 +55,18 @@ document.addEventListener('DOMContentLoaded', () => {
     anthropic: document.getElementById('anthropic-key-container'),
     openai: document.getElementById('openai-key-container'),
     gemini: document.getElementById('gemini-key-container'),
-    openrouter: document.getElementById('openrouter-key-container')
+    openrouter: document.getElementById('openrouter-key-container'),
+    'chrome-ai': document.getElementById('chrome-ai-key-container')
   };
+
+  const webhookUrlInput = document.getElementById('webhookUrl');
+  const maskPIICheckbox = document.getElementById('maskPII');
 
   // Load and Restore Settings
   chrome.storage.local.get([
     'provider', 'model', 'customModel',
-    'anthropicKey', 'openaiKey', 'geminiKey', 'openrouterKey'
+    'anthropicKey', 'openaiKey', 'geminiKey', 'openrouterKey',
+    'customPresetTitle', 'customPresetPrompt', 'webhookUrl', 'maskPII'
   ], (result) => {
     if (result.provider && PROVIDER_MODELS[result.provider]) {
       providerSelect.value = result.provider;
@@ -78,8 +88,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (result.customModel) {
       customModelInput.value = result.customModel;
     }
+    if (result.customPresetTitle) {
+      customPresetTitleInput.value = result.customPresetTitle;
+    }
+    if (result.customPresetPrompt) {
+      customPresetPromptInput.value = result.customPresetPrompt;
+    }
+    if (result.webhookUrl) {
+      webhookUrlInput.value = result.webhookUrl;
+    }
+    if (typeof result.maskPII === 'boolean') {
+      maskPIICheckbox.checked = result.maskPII;
+    }
     
-    // Restore all 4 keys on open
+    // Restore all keys on open
     Object.keys(keyInputs).forEach(p => {
       if (result[`${p}Key`]) {
         keyInputs[p].value = result[`${p}Key`];
@@ -100,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   modelSelect.addEventListener('change', updateUI);
 
-  // All 4 keys saved on save click
+  // All keys and custom preset saved on save click
   saveBtn.addEventListener('click', () => {
     const settings = {
       provider: providerSelect.value,
@@ -109,7 +131,11 @@ document.addEventListener('DOMContentLoaded', () => {
       anthropicKey: keyInputs.anthropic.value.trim(),
       openaiKey: keyInputs.openai.value.trim(),
       geminiKey: keyInputs.gemini.value.trim(),
-      openrouterKey: keyInputs.openrouter.value.trim()
+      openrouterKey: keyInputs.openrouter.value.trim(),
+      customPresetTitle: customPresetTitleInput.value.trim(),
+      customPresetPrompt: customPresetPromptInput.value.trim(),
+      webhookUrl: webhookUrlInput.value.trim(),
+      maskPII: maskPIICheckbox.checked
     };
 
     chrome.storage.local.set(settings, () => {

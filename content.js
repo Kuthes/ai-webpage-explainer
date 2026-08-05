@@ -89,15 +89,52 @@
     { id: 'summary', label: '📌 Summary' },
     { id: 'takeaways', label: '💡 Takeaways' },
     { id: 'eli5', label: '👶 ELI5' },
-    { id: 'faqs', label: '❓ FAQs' }
+    { id: 'faqs', label: '❓ FAQs' },
+    { id: 'translate', label: '🌐 Translate' },
+    { id: 'vision', label: '📸 Vision' },
+    { id: 'compare', label: '📊 Compare Tabs' }
   ];
 
   presets.forEach(p => {
     const btn = document.createElement('button');
     btn.className = 'preset-pill';
     btn.textContent = p.label;
-    btn.addEventListener('click', () => startPresetExplanation(p.id));
+    btn.addEventListener('click', () => {
+      if (p.id === 'vision') {
+        startVisionExplanation();
+      } else if (p.id === 'compare') {
+        startCompareTabsExplanation();
+      } else {
+        startPresetExplanation(p.id);
+      }
+    });
     presetBar.appendChild(btn);
+  });
+
+  // Check for previous snapshot to render '🔄 What Changed?' button
+  let previousSnapshotContent = null;
+  chrome.storage.local.get(['pageSnapshots'], (res) => {
+    const snapshots = res.pageSnapshots || {};
+    const currentUrl = window.location.href;
+    if (snapshots[currentUrl] && snapshots[currentUrl].content) {
+      previousSnapshotContent = snapshots[currentUrl].content;
+      const diffBtn = document.createElement('button');
+      diffBtn.className = 'preset-pill';
+      diffBtn.textContent = '🔄 What Changed?';
+      diffBtn.addEventListener('click', () => startPresetExplanation('diff', previousSnapshotContent));
+      presetBar.appendChild(diffBtn);
+    }
+  });
+
+  // Load custom preset from chrome.storage.local if configured
+  chrome.storage.local.get(['customPresetTitle'], (result) => {
+    if (result.customPresetTitle && result.customPresetTitle.trim()) {
+      const customBtn = document.createElement('button');
+      customBtn.className = 'preset-pill';
+      customBtn.textContent = `⚙️ ${result.customPresetTitle.trim()}`;
+      customBtn.addEventListener('click', () => startPresetExplanation('custom'));
+      presetBar.appendChild(customBtn);
+    }
   });
 
   sidebar.appendChild(presetBar);
@@ -338,7 +375,40 @@
     fab.classList.toggle('hidden', sidebarOpen);
   }
 
-  function extractContent() {
+  function chunkText(fullText, chunkSize = 1500, overlap = 200) {
+    if (!fullText) return [];
+    const chunks = [];
+    let start = 0;
+    while (start < fullText.length) {
+      const end = Math.min(start + chunkSize, fullText.length);
+      chunks.push(fullText.substring(start, end));
+      if (end >= fullText.length) break;
+      start += (chunkSize - overlap);
+    }
+    return chunks;
+  }
+
+  function retrieveRelevantChunks(userQuery, textChunks, maxChunks = 3) {
+    if (!textChunks || textChunks.length <= maxChunks) return textChunks.join('\n\n--- Chunk Break ---\n\n');
+    const queryTerms = userQuery.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+    if (queryTerms.length === 0) return textChunks.slice(0, maxChunks).join('\n\n--- Chunk Break ---\n\n');
+
+    const scored = textChunks.map((chunk, idx) => {
+      const lower = chunk.toLowerCase();
+      let score = 0;
+      queryTerms.forEach(term => {
+        const matches = (lower.match(new RegExp(term, 'g')) || []).length;
+        score += matches;
+      });
+      return { chunk, score, idx };
+    });
+
+    scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+    const topChunks = scored.slice(0, maxChunks).sort((a, b) => a.idx - b.idx);
+    return topChunks.map(c => c.chunk).join('\n\n--- Retrieved Segment ---\n\n');
+  }
+
+  function extractContent(userQuery = '') {
     const title = document.title;
     const url = window.location.href;
     
@@ -367,21 +437,114 @@
       el.append(document.createTextNode('\n'));
     });
 
+    let fullRawText = clone.textContent.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
+    
+    // Save snapshot locally for change tracking diffing
+    savePageSnapshot(url, fullRawText);
+
+    let processedContent = fullRawText;
+    if (fullRawText.length > 15000) {
+      const chunks = chunkText(fullRawText);
+      processedContent = retrieveRelevantChunks(userQuery, chunks);
+    }
+
     return {
       title,
       url,
-      content: clone.textContent.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim().substring(0, 15000)
+      content: processedContent
     };
   }
 
-  async function startExplanation() {
-    pageContext = extractContent();
+  function sanitizePII(text, maskEnabled) {
+    if (!maskEnabled || !text) return text;
+    let sanitized = text.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[REDACTED_EMAIL]');
+    sanitized = sanitized.replace(/\b\+?\d{1,3}[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b/g, '[REDACTED_PHONE]');
+    return sanitized;
+  }
+
+  async function startCompareTabsExplanation() {
+    sidebarOpen = true;
+    sidebar.classList.add('open');
+    fab.classList.add('hidden');
+
+    messagesDiv.textContent = '';
+    const sysMsg = document.createElement('div');
+    sysMsg.className = 'message system';
+    sysMsg.textContent = '📊 Synthesizing and comparing open browser tabs...';
+    messagesDiv.appendChild(sysMsg);
+
+    explainBtn.classList.add('hidden');
+    setLoading(true);
+
+    chrome.runtime.sendMessage({ action: 'compareTabs' }, (response) => {
+      setLoading(false);
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError.message);
+        addMessage('system error', 'Extension context error. Please refresh the page.');
+        explainBtn.classList.remove('hidden');
+        return;
+      }
+      if (response && response.success) {
+        addMessage('assistant', response.explanation);
+        inputArea.classList.remove('hidden');
+        saveToHistory('Multi-Tab Comparison', window.location.href, response.explanation);
+        chatHistory = [
+          { role: 'user', content: 'Compare active browser tabs' },
+          { role: 'assistant', content: response.explanation }
+        ];
+      } else {
+        addMessage('system error', `Error: ${response?.error || 'Unknown error occurred'}`);
+        explainBtn.classList.remove('hidden');
+      }
+    });
+  }
+
+  function savePageSnapshot(url, content) {
+    chrome.storage.local.get(['pageSnapshots'], (res) => {
+      const snapshots = res.pageSnapshots || {};
+      snapshots[url] = {
+        content: content.substring(0, 10000),
+        timestamp: Date.now()
+      };
+      chrome.storage.local.set({ pageSnapshots: snapshots });
+    });
+  }
+
+  function highlightSelectionRange() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    try {
+      const range = sel.getRangeAt(0);
+      const mark = document.createElement('mark');
+      mark.className = 'ai-explainer-highlight';
+      mark.title = 'AI Explained Selection';
+      range.surroundContents(mark);
+    } catch (e) {
+      console.warn('Inline highlight wrap exception:', e);
+    }
+  }
+
+  async function startVisionExplanation() {
+    pageContext = { title: document.title, url: window.location.href };
+    sidebarOpen = true;
+    sidebar.classList.add('open');
+    fab.classList.add('hidden');
+
+    messagesDiv.textContent = '';
+    const sysMsg = document.createElement('div');
+    sysMsg.className = 'message system';
+    sysMsg.textContent = '📸 Capturing page screenshot for Visual Analysis...';
+    messagesDiv.appendChild(sysMsg);
+
     explainBtn.classList.add('hidden');
     setLoading(true);
 
     chrome.runtime.sendMessage({
-      action: 'explainContent',
-      payload: pageContext
+      action: 'explainVision',
+      payload: {
+        title: document.title,
+        url: window.location.href
+      }
     }, (response) => {
       setLoading(false);
       if (chrome.runtime.lastError) {
@@ -395,7 +558,7 @@
         inputArea.classList.remove('hidden');
         saveToHistory(pageContext.title, pageContext.url, response.explanation);
         chatHistory = [
-          { role: 'user', content: `Please explain this page: ${pageContext.title}` },
+          { role: 'user', content: 'Analyze visual layout and charts of this webpage' },
           { role: 'assistant', content: response.explanation }
         ];
       } else {
@@ -405,11 +568,51 @@
     });
   }
 
+  async function startExplanation() {
+    pageContext = extractContent();
+    explainBtn.classList.add('hidden');
+    setLoading(true);
+
+    chrome.storage.local.get(['maskPII'], (res) => {
+      if (res.maskPII) {
+        pageContext.content = sanitizePII(pageContext.content, true);
+      }
+
+      chrome.runtime.sendMessage({
+        action: 'explainContent',
+        payload: pageContext
+      }, (response) => {
+        setLoading(false);
+        if (chrome.runtime.lastError) {
+          console.error(chrome.runtime.lastError.message);
+          addMessage('system error', 'Extension context error. Please refresh the page.');
+          explainBtn.classList.remove('hidden');
+          return;
+        }
+        if (response && response.success) {
+          addMessage('assistant', response.explanation);
+          inputArea.classList.remove('hidden');
+          saveToHistory(pageContext.title, pageContext.url, response.explanation);
+          chatHistory = [
+            { role: 'user', content: `Please explain this page: ${pageContext.title}` },
+            { role: 'assistant', content: response.explanation }
+          ];
+        } else {
+          addMessage('system error', `Error: ${response?.error || 'Unknown error occurred'}`);
+          explainBtn.classList.remove('hidden');
+        }
+      });
+    });
+  }
+
   async function startSelectionExplanation(selectionText) {
     pageContext = { title: document.title, url: window.location.href };
     sidebarOpen = true;
     sidebar.classList.add('open');
     fab.classList.add('hidden');
+
+    // Highlight text on active webpage
+    highlightSelectionRange();
 
     messagesDiv.textContent = '';
     const sysMsg = document.createElement('div');
@@ -450,7 +653,7 @@
     });
   }
 
-  async function startPresetExplanation(mode) {
+  async function startPresetExplanation(mode, previousSnapshot = null) {
     pageContext = extractContent();
     sidebarOpen = true;
     sidebar.classList.add('open');
@@ -463,7 +666,9 @@
       summary: 'Generating Executive Summary...',
       takeaways: 'Extracting Key Takeaways...',
       eli5: 'Generating ELI5 Explanation...',
-      faqs: 'Extracting FAQs...'
+      faqs: 'Extracting FAQs...',
+      translate: 'Generating Dual-Language Summary...',
+      diff: 'Comparing Page Snapshot Changes...'
     };
     sysMsg.textContent = modeTitles[mode] || 'Processing page with AI...';
     messagesDiv.appendChild(sysMsg);
@@ -475,7 +680,8 @@
       action: 'explainPreset',
       payload: {
         ...pageContext,
-        mode
+        mode,
+        previousSnapshot
       }
     }, (response) => {
       setLoading(false);
@@ -572,9 +778,40 @@
         toggleSpeech(text, speakBtn);
       });
 
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'action-btn';
+      exportBtn.textContent = '🔗 Export';
+      exportBtn.addEventListener('click', async () => {
+        chrome.storage.local.get(['webhookUrl'], async (res) => {
+          if (!res.webhookUrl) {
+            alert('Please configure your Workspace Export Webhook URL in extension settings.');
+            return;
+          }
+          try {
+            exportBtn.textContent = '⏳ Exporting...';
+            await fetch(res.webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: pageContext?.title || document.title,
+                url: pageContext?.url || window.location.href,
+                explanation: text,
+                timestamp: new Date().toISOString()
+              })
+            });
+            exportBtn.textContent = '✅ Exported!';
+            setTimeout(() => { exportBtn.textContent = '🔗 Export'; }, 2000);
+          } catch (err) {
+            alert(`Export failed: ${err.message}`);
+            exportBtn.textContent = '🔗 Export';
+          }
+        });
+      });
+
       actionsBar.appendChild(copyBtn);
       actionsBar.appendChild(downloadBtn);
       actionsBar.appendChild(speakBtn);
+      actionsBar.appendChild(exportBtn);
       msgEl.appendChild(actionsBar);
     } else {
       msgEl.textContent = text;

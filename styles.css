@@ -474,3 +474,16 @@ p {
   color: var(--text-muted);
   line-height: 1.35;
 }
+
+mark.ai-explainer-highlight {
+  background-color: rgba(254, 240, 138, 0.75);
+  border-bottom: 2px solid #eab308;
+  border-radius: 2px;
+  padding: 1px 3px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+mark.ai-explainer-highlight:hover {
+  background-color: rgba(253, 224, 71, 0.95);
+}
